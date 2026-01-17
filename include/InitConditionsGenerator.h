@@ -116,28 +116,88 @@ struct InitConditionsGenerator
         LDMatrix L = matrix_add_cord(matrix_add_cord(us_change_of_basis(matrix_erase_cord(D_new,3)),3),1);
         // L = matrix_add_cord(matrix_erase_cord(L,4),4);
         L[4][4] = 1.;
-        
+
+        // std::cout << T.row(4) << std::endl;
+
+        // std::cout << T << std::endl;
         // std::cout << matrix_add_cord(capd::matrixAlgorithms::gaussInverseMatrix(matrix_erase_cord(L,1)),1) * D * L << std::endl;
+        // LDMatrix T_total = T * L;
+        // LDMatrix T_total_inv = matrix_add_cord(capd::matrixAlgorithms::gaussInverseMatrix(matrix_erase_cord(L,1)),1) * capd::matrixAlgorithms::gaussInverseMatrix(T);
+        // std::cout << T_total << std::endl;
+        // std::cout << T_total_inv << std::endl;
+        // std::cout << "**************************************************************" << std::endl;
+        // D = derivative(E);
+        // std::cout << T_total_inv * D * T_total << std::endl;
         
-        std::cout << T[4] << std::endl;
-
-        // std::cout << L << std::endl;
-        L = T * L;
-        // std::cout << L << std::endl;
-
-        
-
-        // std::cout << matrix_add_cord(capd::matrixAlgorithms::gaussInverseMatrix(matrix_erase_cord(L,1)),1) * D * L << std::endl;
-
-        // long double tau_test = 1e-7;
-        // long double E_test = 0.;
-        // v_E = get_fixed_point(E);
-        // LDVector v_test = get_initial_point(tau_test,E);
-        // std::cout << v_test - v_E << std::endl;
-        // std::cout << L * LDVector{tau_test,0,0,0,E_test,0} << std::endl;
-        // std::cout << v_test - v_E - L * LDVector{tau_test,0,0,0,E_test,0} << std::endl;
+        // D = LDMatrix(6,6);
+        // LDMatrix D_temp(6,6);
+        // LDVector w1 = vf.pm_y(w0,D_temp);
+        // D = vf.pm_y.computeDP(w1,D_temp);
+        // LDVector w2 = vf.pm_y(w1,D_temp);
+        // D = vf.pm_y.computeDP(w2,D_temp) * D;
+        // std::cout << T_total_inv * D * T_total << std::endl;
 
         return L;
+    }
+
+    void test() {
+        std::cout << E_radius << std::endl;
+
+        LDVector u1 = get_fixed_point(-E_radius);
+        LDVector u2 = get_fixed_point(E_radius);
+        
+        std::ofstream file("test.txt");
+        file << std::scientific
+             << std::setprecision(std::numeric_limits<long double>::max_digits10);
+
+        long double E_i = -E_radius;
+        for(int i = 0; i < E_div; i++) {
+            LDVector u = get_fixed_point(E_i);
+            file << u[2] << " " << u[4] << std::endl;
+            E_i += E_delta;
+        }
+        file.close();
+
+        return;
+
+        LDMatrix D = derivative(0.);
+        LDMatrix T = LDMatrix::Identity(6);
+        LDVector dE = vf.E.derivative(v0)[0];
+        LDVector E_grad{dE[0],dE[1],-1,dE[3],dE[4],dE[5]};
+        LDVector z_grad = -E_grad / dE[2];
+
+        
+        // LDVector rV(6), iV(6);
+        // capd::alglib::computeEigenvalues(D,rV,iV);
+        // std::cout << rV << std::endl;
+        // std::cout << iV << std::endl;
+        
+        T.row(2) = z_grad;
+        // std::cout << T << std::endl;
+        D = capd::matrixAlgorithms::gaussInverseMatrix(T) * D * T;
+        D = matrix_add_cord(matrix_erase_cord(D,2),2);
+        D[2][2] = 1.;
+        // std::cout << D << std::endl;
+
+
+        LDMatrix D_new = matrix_erase_cord(D,1);
+        LDMatrix L = matrix_add_cord(matrix_add_cord(us_change_of_basis(matrix_erase_cord(D_new,1)),1),1);
+        L[2][2] = 1.;
+        
+        LDMatrix T_total = T * L;
+        LDMatrix T_total_inv = matrix_add_cord(capd::matrixAlgorithms::gaussInverseMatrix(matrix_erase_cord(L,1)),1) * capd::matrixAlgorithms::gaussInverseMatrix(T);
+        D = derivative(0.);
+        std::cout << T_total_inv * D * T_total << std::endl;
+
+        LDMatrix D_temp(6,6);
+        LDVector w1 = vf.pm_y(w0,D_temp);
+        D = vf.pm_y.computeDP(w1,D_temp);
+        LDVector w2 = vf.pm_y(w1,D_temp);
+        D = vf.pm_y.computeDP(w2,D_temp) * D;
+
+        std::cout << T_total_inv * D * T_total << std::endl;
+
+        
     }
 
     std::string vectorToString(LDVector v) {
@@ -214,27 +274,30 @@ struct InitConditionsGenerator
         file.close();
     }
 
-    void test() {
-        save_rectangle_to_file();
 
-        LDMatrix C = get_isomorphism();
+    
 
-        std::ifstream file("init_points.txt");
-        if(!file) throw std::runtime_error("File does not exist");
+    // void test() {
+    //     save_rectangle_to_file();
 
-        std::ofstream file1("output.txt");
+    //     LDMatrix C = get_isomorphism();
 
-        LDVector v(6);
-        long double empty;
-        while(file >> empty >> empty >> v[0] >> v[1] >> v[2] >> v[3] >> v[4] >> v[5]) {
-            LDVector u_bufor = vf.pm_x(v);
-            LDVector u = vf.pm_y(u_bufor);
-            u = C * u;
-            file1 << u[3] << " " << u[5] << std::endl;
-        }
-        file.close();
-        file1.close();
-    }
+    //     std::ifstream file("init_points.txt");
+    //     if(!file) throw std::runtime_error("File does not exist");
+
+    //     std::ofstream file1("output.txt");
+
+    //     LDVector v(6);
+    //     long double empty;
+    //     while(file >> empty >> empty >> v[0] >> v[1] >> v[2] >> v[3] >> v[4] >> v[5]) {
+    //         LDVector u_bufor = vf.pm_x(v);
+    //         LDVector u = vf.pm_y(u_bufor);
+    //         u = C * u;
+    //         file1 << u[3] << " " << u[5] << std::endl;
+    //     }
+    //     file.close();
+    //     file1.close();
+    // }
 };
 
 

@@ -25,18 +25,33 @@ void init_cr3bp_pools(capd::interval mu) {
 }
 
 int main() {
-    cout.precision(26);
+    cout.precision(10);
+
+
     std::setprecision(std::numeric_limits<long double>::max_digits10);
     CR3BP<long double> vf;
 
-    InitConditionsGenerator generator(1e-10,1e-7,300,300);
-    generator.get_change_of_basis(0);
+    InitConditionsGenerator generator(1e-10,1e-7,300,30000);
+    
+    IVector v_E(generator.v0);
+    IMatrix L(generator.get_change_of_basis(0.));
+    
+    // std::cout << v_E << std::endl;
+
+    capd::threading::ThreadPool pool(threadsNo);
+    interval mu = 0.00095388114032796904;
+    init_cr3bp_pools(mu);
+    
+
+    ComputeImageTask task(Interval(0),Interval(generator.E0), v_E, L);
+    pool.process(&task);
+    task.join();
+    
+
     // generator.test();
     return 0;
     
-    // capd::threading::ThreadPool pool(threadsNo);
-    // interval mu = 0.00095388114032796904;
-    // init_cr3bp_pools(mu);
+    
 
     LDVector w0{0.9468923401720671061132517L,-4.072102120831082499146823e-24L,0.05316795353478707980175375L,
         -5.553112274845604899656097e-08L,-0.01115319054270743243833971L,-9.199674025000000205149813e-08L};

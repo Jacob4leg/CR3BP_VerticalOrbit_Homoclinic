@@ -126,6 +126,7 @@ struct CR3BP {
             
             // input variables are x,z (0 and 2)
             TMatrix M({{D[1][0],D[1][2]},{D[3][0],D[3][2]}});
+            
             u = capd::matrixAlgorithms::gauss(M,u);
             v[0] -= u[0];
             v[2] -= u[1];
