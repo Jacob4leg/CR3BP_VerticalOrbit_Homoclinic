@@ -18,63 +18,75 @@ struct ComputeImageTask : public capd::threading::Task {
     long double muSJ = 0.00095388114032796904;
     CR3BP<long double> vf;
     Interval theta, E;
+    Interval X, Z, DY;
     Interval E_remainder;
-    IVector v_E;
+    IVector v0, V;
     IMatrix L, L_inv;
     IVector x, result;
     capd::IMap dy;
+    capd::IMap E_map;
     Status status = NEW;
 
-    ComputeImageTask(Interval theta, Interval E, IVector v_E, IMatrix L) : theta(theta), E(E), v_E(v_E), L(L) {
+    ComputeImageTask(Interval theta, Interval E, IVector V, IMatrix L) : theta(theta), E(E), V(V), L(L) {
+        result = IVector(2);
+        split(v0,V);
+        X = V[0]; Z = V[1]; DY = V[4];
+        
         dy = capd::IMap(dy_map,6,1,2);
         dy.setParameter(0,muSJ);
         dy.setParameter(1,muSJ-1.);
 
-        IMatrix L_temp = capd::matrixAlgorithms::gaussInverseMatrix(matrix_erase_cord(L,1));
+        E_map = capd::IMap(energy,6,1,2);
+        E_map.setParameter(0,muSJ);
+        E_map.setParameter(1,muSJ-1.);
+
+        IMatrix L_temp = capd::matrixAlgorithms::krawczykInverse(matrix_erase_cord(L,1));
         L_inv = matrix_add_cord(L_temp,1);
         E.split(E_remainder);
 
     }
 
-    IMatrix get_energy_change_of_basis(Interval X_remainder, Interval Z_remainder) {
-        IVector U = v_E;
-        U[4] = E;
-        U += IVector{X_remainder,0,Z_remainder,0,0,0};
-        IVector grad = dy.derivative(U)[0];
+    IMatrix get_energy_change_of_basis() {
+        // IVector U = v0;
+        // U += IVector{X_remainder,0,0,0,DY_remainder,0};
+        IVector dE = E_map.derivative(V)[0];
+        IVector z_grad = -IVector{dE[0],dE[1],-1,dE[3],dE[4],dE[5]} / dE[2];
         IMatrix T = IMatrix::Identity(6);
-        T.row(4) = grad;
+        T.row(2) = z_grad;
         return T;
     }
 
-    bool prove_fixed_point(capd::Interval X_remainder, capd::Interval Z_remainder, capd::Interval DY_remainder, capd::IPoincareMap& pm_z) {
+    bool prove_Z_bound() {
+        // TODO
+    }
+
+
+    bool prove_fixed_point(capd::IPoincareMap& pm_z) {
+        // TODO
+        // capd::IVector u0 = v_E;
+        // capd::IVector U0 = v_E;
+        // capd::IVector U = u0 + capd::IVector{X_remainder,0,Z_remainder,0,DY_remainder,0};
+        // U0[4] += DY_remainder;
+
+        // capd::IMatrix D(6,6);
+        // capd::C1HORect2Set S(U);
+        // capd::IVector V = pm_z(S,D);
+        // D = pm_z.computeDP(V,D);
+
+        // capd::IMatrix M({{D[1][0],D[1][2]},{D[3][0],D[3][2]}});
+
+        // capd::C0HORect2Set S0(U0);
+        // V = pm_z(S0);
+        // capd::IVector V0{V[1],V[3]};
+        // capd::IVector N = - capd::matrixAlgorithms::gauss(M,V0);
         
-        capd::IVector u0 = v_E;
-        capd::IVector U0 = v_E;
-        capd::IVector U = u0 + capd::IVector{X_remainder,0,Z_remainder,0,DY_remainder,0};
-        U0[4] += DY_remainder;
-
-        capd::IMatrix D(6,6);
-        capd::C1HORect2Set S(U);
-        capd::IVector V = pm_z(S,D);
-        D = pm_z.computeDP(V,D);
-
-        capd::IMatrix M({{D[1][0],D[1][2]},{D[3][0],D[3][2]}});
-
-        capd::C0HORect2Set S0(U0);
-        V = pm_z(S0);
-        capd::IVector V0{V[1],V[3]};
-        capd::IVector N = - capd::matrixAlgorithms::gauss(M,V0);
-        
-        return subset(N, capd::IVector{X_remainder,Z_remainder});
+        // return subset(N, capd::IVector{X_remainder,Z_remainder});
     }
 
 
     Interval cone_coeff(int tau_div, IMatrix T_total, IMatrix T_total_inv, capd::IPoincareMap& pm_y) {
         double tau_eps = 1e-7;
-        double gamma_eps = 1.4e-7;
-
-        // tau_eps = 0.;
-        // gamma_eps = 0.;
+        double gamma_eps = 1e-8;
 
         double tau_delta = tau_eps / tau_div;
 
@@ -84,9 +96,8 @@ struct ComputeImageTask : public capd::threading::Task {
         Interval tau_i(0, tau_delta);
 
         for(int i = 0; i < tau_div; i++) {
-            // std::cout << tau_i << std::endl;
-            IVector u{tau_i,0, gamma, gamma, E, gamma};
-            capd::C1HORect2Set S(capd::C1Rect2Set::C0BaseSet(v_E, T_total, u), capd::C1Rect2Set::C1BaseSet(T_total));
+            IVector u{tau_i,0, E, gamma, gamma, gamma};
+            capd::C1HORect2Set S(capd::C1Rect2Set::C0BaseSet(v0, T_total, u), capd::C1Rect2Set::C1BaseSet(T_total));
             
             IMatrix D(6,6);
             IVector y = pm_y(S,D,2);
@@ -103,7 +114,11 @@ struct ComputeImageTask : public capd::threading::Task {
         capd::IMaxNorm max_norm;
         capd::ISumNorm sum_norm;
 
-        IMatrix H = matrix_erase_cord(D_total,3);
+
+        std::cout << D_total << std::endl;
+        IMatrix H = matrix_erase_cord(D_total,1);
+
+        // std::cout << H << std::endl;
 
         Interval A = capd::abs(D_total[0][0]).left();
         Interval B = sum_norm(IVector{H[0][1],H[0][2],H[0][3]}).right();
@@ -129,40 +144,27 @@ struct ComputeImageTask : public capd::threading::Task {
             capd::IPoincareMap& pm_y = CR3BPPool::pool_Y->getSolver(threadID).pm;
             capd::IPoincareMap& pm_z = CR3BPPool::pool_Z->getSolver(threadID).pm;
             
-            IVector w{theta,0,0,0,E,0};
-
-            Interval X_test = 1e-12 * Interval(-1,1);
-            Interval Z_test = 1e-12 * Interval(-1,1);
-            E = 1e-15 * Interval(-1,1);
             
-            IMatrix T = get_energy_change_of_basis(X_test,Z_test);
+            IMatrix T = get_energy_change_of_basis();
 
-            
-
-            IMatrix T_inv = capd::matrixAlgorithms::gaussInverseMatrix(T);
+            IMatrix T_inv = capd::matrixAlgorithms::krawczykInverse(T);
             IMatrix T_total = T * L;
             IMatrix T_total_inv = L_inv * T_inv;
-            // std::cout << T_total << std::endl;
-            // std::cout << T_total_inv << std::endl;
-            // return;
 
-            // IMatrix D(6,6);
-            // capd::C1HORect2Set S(v_E);
-            // IVector V = pm_y(S,D,2);
-            // D = pm_y.computeDP(V,D);
-            // D = T_total_inv * D * T_total;
-            // std::cout << D << std::endl;
-            // return;
+            Interval alpha = cone_coeff(20,T_total, T_total_inv, pm_y);
+
+            Interval gamma = alpha * theta * Interval(-1,1);
+
+            IVector w{theta,0,0,gamma,gamma,gamma};
+            w += T_total_inv * V;
             
 
-            cone_coeff(50,T_total, T_total_inv, pm_y);
+            capd::C1HORect2Set S(capd::C1Rect2Set::C0BaseSet(v0,T_total,w),capd::C1Rect2Set::C1BaseSet(T_total));
+            pm_x(S);
+            IVector res = pm_y(S);
+            result = IVector{res[3],res[5]};
+            
 
-            // std::cout << prove_fixed_point(X_test, Z_test, E, pm_z) << std::endl;
-
-            // std::cout << "computing image of " << x << " in thread " << threadID << std::endl << std::flush;
-            // capd::C0HORect2Set S(v_E, L, w);
-            // pm_x(S);
-            // result = pm_y(S);
             status = COMPLETED;
         } catch(...) {
             status = FAILED;

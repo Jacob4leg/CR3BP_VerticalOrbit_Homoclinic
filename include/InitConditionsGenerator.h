@@ -24,7 +24,7 @@ struct InitConditionsGenerator
     int tau_div; int E_div;
     long double tau_delta; long double E_delta;
 
-    LDVector V_eig;
+    // LDVector V_eig;
     CR3BP<long double> vf;
 
     InitConditionsGenerator(long double tau_radius, long double E_radius, int tau_div, int E_div) : 
@@ -48,7 +48,7 @@ struct InitConditionsGenerator
         LDVector rV(6), iV(6);
         LDMatrix rVec(6,6), iVec(6,6);
         capd::computeEigenvaluesAndEigenvectors(D,rV,iV,rVec,iVec);
-        V_eig = rVec.column(0);
+        LDVector V_eig = rVec.column(0);
 
         tau_0 = (w0[0] - v0[0]) / V_eig[0];
     }
@@ -65,7 +65,12 @@ struct InitConditionsGenerator
 
     LDVector get_initial_point(long double tau, long double E) {
         LDVector v_E = get_fixed_point(E);
-        LDVector v_res = v_E + tau * V_eig;
+        LDMatrix D = derivative(E);
+        LDVector rV(6),iV(6);
+        LDMatrix rVec(6,6), iVec(6,6);
+        capd::computeEigenvaluesAndEigenvectors(D,rV,iV,rVec,iVec);
+
+        LDVector v_res = v_E + tau * rVec.column(0);
         return v_res;
     }
 
@@ -79,6 +84,10 @@ struct InitConditionsGenerator
         LDMatrix res = LDMatrix::Identity(6);
         res[3][3] = Pu1_y[3]; res[3][5] = Pu2_y[3];
         res[5][3] = Pu1_y[5]; res[5][5] = Pu2_y[5];
+
+        LDVector u = vf.pm_y(vf.pm_x(w0));
+
+        res.column(1) = vf.vf(u);
 
         return capd::matrixAlgorithms::gaussInverseMatrix(res);
     }
@@ -96,109 +105,36 @@ struct InitConditionsGenerator
 
     LDMatrix get_change_of_basis(long double E) {
         LDVector v_E = get_fixed_point(E);
-        long double dy = v_E[4];
-        v_E[4] = E0 + E;
+        // long double dy = v_E[4];
+        // v_E[4] = E0 + E;
         LDMatrix T = LDMatrix::Identity(6);
+        
+        LDVector dE = vf.E.derivative(v_E)[0];
+        LDVector z_grad = -LDVector{dE[0],dE[1],-1,dE[3],dE[4],dE[5]} / dE[2];
 
-        T.row(4) = vf.dy.derivative(v_E)[0];
-        v_E[4] = dy;
+        T.row(2) = z_grad;
 
         LDMatrix D = derivative(E);
         D = capd::matrixAlgorithms::gaussInverseMatrix(T) * D * T;
-        D = matrix_add_cord(matrix_erase_cord(D,4),4);
-        D[4][4] = 1.;
+        D = matrix_add_cord(matrix_erase_cord(D,2),2);
+        D[2][2] = 1.;
 
-        LDVector rV(6), iV(6);
-        LDMatrix rVec(6,6), iVec(6,6);
-        capd::alglib::computeEigenvaluesAndEigenvectors(D,rV,iV,rVec,iVec);
         LDMatrix D_new = matrix_erase_cord(D,1);
 
-        LDMatrix L = matrix_add_cord(matrix_add_cord(us_change_of_basis(matrix_erase_cord(D_new,3)),3),1);
-        // L = matrix_add_cord(matrix_erase_cord(L,4),4);
-        L[4][4] = 1.;
+        LDMatrix L = matrix_add_cord(matrix_add_cord(us_change_of_basis(matrix_erase_cord(D_new,1)),1),1);
+        
+        L[2][2] = 1.;
 
-        // std::cout << T.row(4) << std::endl;
-
-        // std::cout << T << std::endl;
-        // std::cout << matrix_add_cord(capd::matrixAlgorithms::gaussInverseMatrix(matrix_erase_cord(L,1)),1) * D * L << std::endl;
+        
         // LDMatrix T_total = T * L;
         // LDMatrix T_total_inv = matrix_add_cord(capd::matrixAlgorithms::gaussInverseMatrix(matrix_erase_cord(L,1)),1) * capd::matrixAlgorithms::gaussInverseMatrix(T);
-        // std::cout << T_total << std::endl;
-        // std::cout << T_total_inv << std::endl;
-        // std::cout << "**************************************************************" << std::endl;
-        // D = derivative(E);
-        // std::cout << T_total_inv * D * T_total << std::endl;
         
-        // D = LDMatrix(6,6);
-        // LDMatrix D_temp(6,6);
-        // LDVector w1 = vf.pm_y(w0,D_temp);
-        // D = vf.pm_y.computeDP(w1,D_temp);
-        // LDVector w2 = vf.pm_y(w1,D_temp);
-        // D = vf.pm_y.computeDP(w2,D_temp) * D;
-        // std::cout << T_total_inv * D * T_total << std::endl;
+        // D = derivative(E);
 
         return L;
     }
 
-    void test() {
-        std::cout << E_radius << std::endl;
-
-        LDVector u1 = get_fixed_point(-E_radius);
-        LDVector u2 = get_fixed_point(E_radius);
-        
-        std::ofstream file("test.txt");
-        file << std::scientific
-             << std::setprecision(std::numeric_limits<long double>::max_digits10);
-
-        long double E_i = -E_radius;
-        for(int i = 0; i < E_div; i++) {
-            LDVector u = get_fixed_point(E_i);
-            file << u[2] << " " << u[4] << std::endl;
-            E_i += E_delta;
-        }
-        file.close();
-
-        return;
-
-        LDMatrix D = derivative(0.);
-        LDMatrix T = LDMatrix::Identity(6);
-        LDVector dE = vf.E.derivative(v0)[0];
-        LDVector E_grad{dE[0],dE[1],-1,dE[3],dE[4],dE[5]};
-        LDVector z_grad = -E_grad / dE[2];
-
-        
-        // LDVector rV(6), iV(6);
-        // capd::alglib::computeEigenvalues(D,rV,iV);
-        // std::cout << rV << std::endl;
-        // std::cout << iV << std::endl;
-        
-        T.row(2) = z_grad;
-        // std::cout << T << std::endl;
-        D = capd::matrixAlgorithms::gaussInverseMatrix(T) * D * T;
-        D = matrix_add_cord(matrix_erase_cord(D,2),2);
-        D[2][2] = 1.;
-        // std::cout << D << std::endl;
-
-
-        LDMatrix D_new = matrix_erase_cord(D,1);
-        LDMatrix L = matrix_add_cord(matrix_add_cord(us_change_of_basis(matrix_erase_cord(D_new,1)),1),1);
-        L[2][2] = 1.;
-        
-        LDMatrix T_total = T * L;
-        LDMatrix T_total_inv = matrix_add_cord(capd::matrixAlgorithms::gaussInverseMatrix(matrix_erase_cord(L,1)),1) * capd::matrixAlgorithms::gaussInverseMatrix(T);
-        D = derivative(0.);
-        std::cout << T_total_inv * D * T_total << std::endl;
-
-        LDMatrix D_temp(6,6);
-        LDVector w1 = vf.pm_y(w0,D_temp);
-        D = vf.pm_y.computeDP(w1,D_temp);
-        LDVector w2 = vf.pm_y(w1,D_temp);
-        D = vf.pm_y.computeDP(w2,D_temp) * D;
-
-        std::cout << T_total_inv * D * T_total << std::endl;
-
-        
-    }
+    
 
     std::string vectorToString(LDVector v) {
         std::ostringstream oss; 
@@ -224,8 +160,12 @@ struct InitConditionsGenerator
         file << std::scientific
              << std::setprecision(std::numeric_limits<long double>::max_digits10);
 
+        capd::LDMaxNorm norm;
+        long double error = 0.;
+
         LDVector v_E1 = get_fixed_point(-E_radius);
         LDVector v_E2 = get_fixed_point(E_radius);
+
 
         for(int i = 0; i < tau_div - 1; i++) {
             file << tau_i << " " << tau_i + tau_delta << " " << -E_radius << " " << -E_radius << " " << vectorToString(v_E1) << std::endl;
@@ -239,6 +179,8 @@ struct InitConditionsGenerator
             file <<  tau_radius << " " <<  tau_radius << " " << E_i << " " << E_i + E_delta << " " << vectorToString(v_E) << std::endl;
             E_i += E_delta;
         }
+
+        std::cout << error << std::endl;
 
         file.close();
     }
@@ -274,31 +216,124 @@ struct InitConditionsGenerator
         file.close();
     }
 
+    void test1() {
+        long double tau_i = -tau_radius;
+        long double E_i = -E_radius;
 
+        std::ofstream file("output.txt");
+        file << std::scientific
+             << std::setprecision(std::numeric_limits<long double>::max_digits10);
+        
+        for(int i = 0; i < tau_div; i++) {
+            
+            LDVector u = get_initial_point(tau_i, -E_radius);
+            LDVector res = vf.pm_y(vf.pm_x(u));
+            file << res[3] << " " << res[5] << std::endl;
+            u = get_initial_point(tau_i, E_radius);
+            res = vf.pm_y(vf.pm_x(u));
+            file << res[3] << " " << res[5] << std::endl;
+
+            tau_i += tau_delta;
+        }
+
+        for(int i = 0; i < E_div; i++) {
+            LDVector u = get_initial_point(-tau_radius, E_i);
+            LDVector res = vf.pm_y(vf.pm_x(u));
+            file << res[3] << " " << res[5] << std::endl;
+            u = get_initial_point(tau_radius, E_i);
+            res = vf.pm_y(vf.pm_x(u));
+            file << res[3] << " " << res[5] << std::endl;
+
+            E_i += E_delta;
+        }
+        file.close();
+    }
     
 
-    // void test() {
-    //     save_rectangle_to_file();
+    void test() {
+        save_rectangle_to_file();
 
-    //     LDMatrix C = get_isomorphism();
+        LDMatrix C = get_isomorphism();
 
-    //     std::ifstream file("init_points.txt");
-    //     if(!file) throw std::runtime_error("File does not exist");
+        std::ifstream file("init_points.txt");
+        
+        if(!file) throw std::runtime_error("File does not exist");
 
-    //     std::ofstream file1("output.txt");
+        std::ofstream file1("output.txt");
+        file1 << std::scientific
+             << std::setprecision(std::numeric_limits<long double>::max_digits10);
 
-    //     LDVector v(6);
-    //     long double empty;
-    //     while(file >> empty >> empty >> v[0] >> v[1] >> v[2] >> v[3] >> v[4] >> v[5]) {
-    //         LDVector u_bufor = vf.pm_x(v);
-    //         LDVector u = vf.pm_y(u_bufor);
-    //         u = C * u;
-    //         file1 << u[3] << " " << u[5] << std::endl;
-    //     }
-    //     file.close();
-    //     file1.close();
-    // }
+        LDVector v(6);
+        long double empty;
+        while(file >> empty >> empty >> v[0] >> v[1] >> v[2] >> v[3] >> v[4] >> v[5]) {
+            LDVector u_bufor = vf.pm_x(v);
+            LDVector u = vf.pm_y(u_bufor);
+            // u = C * u;
+            file1 << u[3] << " " << u[5] << std::endl;
+        }
+        file.close();
+        file1.close();
+    }
 };
 
+// void test() {
+    //     std::cout << E_radius << std::endl;
+
+    //     LDVector u1 = get_fixed_point(-E_radius);
+    //     LDVector u2 = get_fixed_point(E_radius);
+        
+    //     std::ofstream file("test.txt");
+    //     file << std::scientific
+    //          << std::setprecision(std::numeric_limits<long double>::max_digits10);
+
+    //     long double E_i = -E_radius;
+    //     for(int i = 0; i < E_div; i++) {
+    //         LDVector u = get_fixed_point(E_i);
+    //         file << u[2] << " " << u[4] << std::endl;
+    //         E_i += E_delta;
+    //     }
+    //     file.close();
+
+    //     return;
+
+    //     LDMatrix D = derivative(0.);
+    //     LDMatrix T = LDMatrix::Identity(6);
+    //     LDVector dE = vf.E.derivative(v0)[0];
+    //     LDVector E_grad{dE[0],dE[1],-1,dE[3],dE[4],dE[5]};
+    //     LDVector z_grad = -E_grad / dE[2];
+
+        
+    //     // LDVector rV(6), iV(6);
+    //     // capd::alglib::computeEigenvalues(D,rV,iV);
+    //     // std::cout << rV << std::endl;
+    //     // std::cout << iV << std::endl;
+        
+    //     T.row(2) = z_grad;
+    //     // std::cout << T << std::endl;
+    //     D = capd::matrixAlgorithms::gaussInverseMatrix(T) * D * T;
+    //     D = matrix_add_cord(matrix_erase_cord(D,2),2);
+    //     D[2][2] = 1.;
+    //     // std::cout << D << std::endl;
+
+
+    //     LDMatrix D_new = matrix_erase_cord(D,1);
+    //     LDMatrix L = matrix_add_cord(matrix_add_cord(us_change_of_basis(matrix_erase_cord(D_new,1)),1),1);
+    //     L[2][2] = 1.;
+        
+    //     LDMatrix T_total = T * L;
+    //     LDMatrix T_total_inv = matrix_add_cord(capd::matrixAlgorithms::gaussInverseMatrix(matrix_erase_cord(L,1)),1) * capd::matrixAlgorithms::gaussInverseMatrix(T);
+    //     D = derivative(0.);
+    //     std::cout << T_total_inv * D * T_total << std::endl;
+
+    //     LDMatrix D_temp(6,6);
+    //     LDVector w1 = vf.pm_y(w0,D_temp);
+    //     D = vf.pm_y.computeDP(w1,D_temp);
+    //     LDVector w2 = vf.pm_y(w1,D_temp);
+    //     D = vf.pm_y.computeDP(w2,D_temp) * D;
+
+    //     std::cout << T_total_inv * D * T_total << std::endl;
+
+        
+    // }
 
 #endif
