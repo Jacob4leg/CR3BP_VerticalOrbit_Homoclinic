@@ -54,6 +54,7 @@ struct InitConditionsGenerator
     }
 
     LDVector get_fixed_point(long double E) {
+        // WRONG METHOD FOR FINDING FIXED POINT
         LDVector v_E = v0;
         long double dy1 = v_E[4];
         v_E[4] = E0 + E;
@@ -70,7 +71,7 @@ struct InitConditionsGenerator
         LDMatrix rVec(6,6), iVec(6,6);
         capd::computeEigenvaluesAndEigenvectors(D,rV,iV,rVec,iVec);
 
-        LDVector v_res = v_E + tau * rVec.column(0);
+        LDVector v_res = v_E + (tau_0 + tau) * rVec.column(0);
         return v_res;
     }
 
@@ -89,7 +90,7 @@ struct InitConditionsGenerator
 
         res.column(1) = vf.vf(u);
 
-        return capd::matrixAlgorithms::gaussInverseMatrix(res);
+        return res;
     }
 
     LDMatrix derivative(long double E) {
@@ -104,6 +105,8 @@ struct InitConditionsGenerator
     }
 
     LDMatrix get_change_of_basis(long double E) {
+        E -= E0;
+        
         LDVector v_E = get_fixed_point(E);
         // long double dy = v_E[4];
         // v_E[4] = E0 + E;
@@ -153,34 +156,46 @@ struct InitConditionsGenerator
      * where v_E = (x,y,z,dx,dy,dz) is an approximate fixed point on energy level (E_rightBound + E_leftBound) / 2
      */
     void save_init_data_to_file() {
-        long double tau_i = -tau_radius;
-        long double E_i = -E_radius;
+        long double tau_i = -tau_radius + tau_0;
+        long double E_i = -E_radius + E0;
 
         std::ofstream file("init_data.txt");
         file << std::scientific
              << std::setprecision(std::numeric_limits<long double>::max_digits10);
 
-        capd::LDMaxNorm norm;
-        long double error = 0.;
-
         LDVector v_E1 = get_fixed_point(-E_radius);
         LDVector v_E2 = get_fixed_point(E_radius);
 
 
-        for(int i = 0; i < tau_div - 1; i++) {
-            file << tau_i << " " << tau_i + tau_delta << " " << -E_radius << " " << -E_radius << " " << vectorToString(v_E1) << std::endl;
-            file << tau_i << " " << tau_i + tau_delta << " " <<  E_radius << " " <<  E_radius << " " << vectorToString(v_E2) << std::endl;
+        for(int i = 0; i < tau_div; i++) {
+            file << tau_i << " " << -E_radius + E0 << " " << vectorToString(v_E1) << std::endl;
+            tau_i += tau_delta;
+        }
+        
+        file << std::endl;
+        tau_i = -tau_radius + tau_0;
+
+        for(int i = 0; i < tau_div; i++) {
+            file << tau_i << " " <<  E_radius + E0 << " " << vectorToString(v_E2) << std::endl;
             tau_i += tau_delta;
         }
 
-        for(int i = 0; i < E_div - 1; i++) {
-            LDVector v_E = get_fixed_point(E_i + E_delta / 2);
-            file << -tau_radius << " " << -tau_radius << " " << E_i << " " << E_i + E_delta << " " << vectorToString(v_E) << std::endl;
-            file <<  tau_radius << " " <<  tau_radius << " " << E_i << " " << E_i + E_delta << " " << vectorToString(v_E) << std::endl;
+        file << std::endl;
+
+        for(int i = 0; i < E_div; i++) {
+            LDVector v_E = get_fixed_point(E_i - E0);
+            file << -tau_radius + tau_0 << " " << E_i << " " << vectorToString(v_E) << std::endl;
             E_i += E_delta;
         }
 
-        std::cout << error << std::endl;
+        file << std::endl;
+        E_i = -E_radius + E0;
+
+        for(int i = 0; i < E_div; i++) {
+            LDVector v_E = get_fixed_point(E_i - E0);
+            file <<  tau_radius + tau_0 << " " << E_i << " " << vectorToString(v_E) << std::endl;
+            E_i += E_delta;
+        }
 
         file.close();
     }
@@ -251,7 +266,7 @@ struct InitConditionsGenerator
     
 
     void test() {
-        save_rectangle_to_file();
+        // save_rectangle_to_file();
 
         LDMatrix C = get_isomorphism();
 
@@ -268,7 +283,7 @@ struct InitConditionsGenerator
         while(file >> empty >> empty >> v[0] >> v[1] >> v[2] >> v[3] >> v[4] >> v[5]) {
             LDVector u_bufor = vf.pm_x(v);
             LDVector u = vf.pm_y(u_bufor);
-            // u = C * u;
+            u = C * u;
             file1 << u[3] << " " << u[5] << std::endl;
         }
         file.close();

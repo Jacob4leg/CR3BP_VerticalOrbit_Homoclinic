@@ -5,6 +5,7 @@
 #include "capd/capdlib.h"
 #include "cr3bp.h"
 #include "linalg_helper.h"
+#include "InitConditionsGenerator.h"
 
 
 
@@ -17,20 +18,28 @@ struct ComputeImageTask : public capd::threading::Task {
 
     long double muSJ = 0.00095388114032796904;
     CR3BP<long double> vf;
-    Interval theta, E;
+    Interval tau, E;
     Interval X, Z, DY;
-    Interval E_remainder;
+    Interval X0, X_remainder;
+    Interval Z0, Z_remainder;
+    Interval DY0, DY_remainder;
+    Interval E0,E_remainder;
     IVector v0, V;
-    IMatrix L, L_inv;
+    IMatrix L, L_inv, C;
     IVector x, result;
     capd::IMap dy;
     capd::IMap E_map;
     Status status = NEW;
 
-    ComputeImageTask(Interval theta, Interval E, IVector V, IMatrix L) : theta(theta), E(E), V(V), L(L) {
+    ComputeImageTask(Interval tau, Interval E, IVector V, IMatrix B, InitConditionsGenerator& gen) : tau(tau), E(E), V(V) {
+        LDMatrix L1 = gen.get_change_of_basis(E.leftBound());
+        LDMatrix L2 = gen.get_change_of_basis(E.rightBound());
+        L = intervalHull(IMatrix(L1),IMatrix(L2));
+
         result = IVector(2);
-        split(v0,V);
-        X = V[0]; Z = V[1]; DY = V[4];
+        X = V[0]; Z = V[2]; DY = V[4];
+
+        
         
         dy = capd::IMap(dy_map,6,1,2);
         dy.setParameter(0,muSJ);
@@ -42,8 +51,10 @@ struct ComputeImageTask : public capd::threading::Task {
 
         IMatrix L_temp = capd::matrixAlgorithms::krawczykInverse(matrix_erase_cord(L,1));
         L_inv = matrix_add_cord(L_temp,1);
-        E.split(E_remainder);
-
+        // E_remainder = E
+        E.split(E0,E_remainder);
+        X.split(X0,X_remainder); Z.split(Z0,Z_remainder); DY.split(DY0,DY_remainder);
+        C = capd::matrixAlgorithms::krawczykInverse(B);
     }
 
     IMatrix get_energy_change_of_basis() {
@@ -57,12 +68,43 @@ struct ComputeImageTask : public capd::threading::Task {
     }
 
     bool prove_Z_bound() {
-        // TODO
+        LDVector LD_u0{X0.leftBound(),0,Z0.leftBound(),0,DY0.leftBound(),0};
+        IVector u0{X0,0,Z0,0,DY0,0};
+        IVector U{X,0,Z0,0,DY0,0};
+        
+        std::cout << (E_map(V) - E) << std::endl;
+
+        capd::LDMap LD_E_map(energy,6,1,2);
+        LD_E_map.setParameter(0,muSJ);
+        LD_E_map.setParameter(1,muSJ-1.);
+
+        LDVector LD_dE = LD_E_map.derivative(LD_u0)[0];
+        
+        IMatrix A({{Interval(LD_dE[0]),-1,Interval(LD_dE[4])}});
+        A = A / Interval(LD_dE[2]);
+        
+
+        IVector dE_point = E_map.derivative(u0)[0];
+        IVector dE = E_map.derivative(U)[0];
+
+        IMatrix Df_x({{dE[0],-1,dE[4]}});
+        IMatrix Df_z({{dE[2]}});
+
+        IMatrix Dg_x = Df_x - capd::vectalg::intersection(Df_z * A, (Df_z / dE_point[2]) * IMatrix({{dE_point[0],-1,dE_point[4]}}));
+        
+        IVector g = (E_map(u0) - E0) + Dg_x * IVector{X_remainder,E_remainder,DY_remainder};
+        dE = E_map.derivative(V)[0];
+        IVector N = - g / dE[2];
+        std::cout << N << std::endl;
+        std::cout << Z_remainder + (A * IVector{X_remainder,E_remainder,DY_remainder})[0] << std::endl;
+
+        return true;
     }
 
 
     bool prove_fixed_point(capd::IPoincareMap& pm_z) {
         // TODO
+
         // capd::IVector u0 = v_E;
         // capd::IVector U0 = v_E;
         // capd::IVector U = u0 + capd::IVector{X_remainder,0,Z_remainder,0,DY_remainder,0};
@@ -81,6 +123,8 @@ struct ComputeImageTask : public capd::threading::Task {
         // capd::IVector N = - capd::matrixAlgorithms::gauss(M,V0);
         
         // return subset(N, capd::IVector{X_remainder,Z_remainder});
+
+        return true;
     }
 
 
@@ -96,8 +140,9 @@ struct ComputeImageTask : public capd::threading::Task {
         Interval tau_i(0, tau_delta);
 
         for(int i = 0; i < tau_div; i++) {
-            IVector u{tau_i,0, E, gamma, gamma, gamma};
-            capd::C1HORect2Set S(capd::C1Rect2Set::C0BaseSet(v0, T_total, u), capd::C1Rect2Set::C1BaseSet(T_total));
+            
+            IVector u{tau_i,0, E_remainder, gamma, gamma, gamma};
+            capd::C1HORect2Set S(capd::C1Rect2Set::C0BaseSet(V, T_total, u), capd::C1Rect2Set::C1BaseSet(T_total));
             
             IMatrix D(6,6);
             IVector y = pm_y(S,D,2);
@@ -114,8 +159,6 @@ struct ComputeImageTask : public capd::threading::Task {
         capd::IMaxNorm max_norm;
         capd::ISumNorm sum_norm;
 
-
-        std::cout << D_total << std::endl;
         IMatrix H = matrix_erase_cord(D_total,1);
 
         // std::cout << H << std::endl;
@@ -131,37 +174,47 @@ struct ComputeImageTask : public capd::threading::Task {
         Interval alpha1 = (A - K + sqrt(delta)) / (2 * B);
         Interval alpha2 = (A - K - sqrt(delta)) / (2 * B);
 
-        std::cout << alpha1 << std::endl;
-        std::cout << alpha2 << std::endl;
-
         return alpha2.right();
     }
     
 
     void run(unsigned threadID) {
+        prove_Z_bound();
         try {
             capd::IPoincareMap& pm_x = CR3BPPool::pool_X->getSolver(threadID).pm;
             capd::IPoincareMap& pm_y = CR3BPPool::pool_Y->getSolver(threadID).pm;
             capd::IPoincareMap& pm_z = CR3BPPool::pool_Z->getSolver(threadID).pm;
             
             
+            
+
             IMatrix T = get_energy_change_of_basis();
 
             IMatrix T_inv = capd::matrixAlgorithms::krawczykInverse(T);
             IMatrix T_total = T * L;
             IMatrix T_total_inv = L_inv * T_inv;
 
-            Interval alpha = cone_coeff(20,T_total, T_total_inv, pm_y);
 
-            Interval gamma = alpha * theta * Interval(-1,1);
+            Interval alpha = cone_coeff(5,T_total, T_total_inv, pm_y);
+            // std::cout << alpha << std::endl;
 
-            IVector w{theta,0,0,gamma,gamma,gamma};
-            w += T_total_inv * V;
+            Interval gamma = alpha * tau * Interval(-1,1);
+
+            IVector w{tau,0,0,gamma,gamma,gamma};
+
+
             
+            // w += T_total_inv * V_remainder;
 
-            capd::C1HORect2Set S(capd::C1Rect2Set::C0BaseSet(v0,T_total,w),capd::C1Rect2Set::C1BaseSet(T_total));
+            Interval returnTime;
+            IVector zero_vector{0,0,0,0,0,0};
+
+            capd::C0HORect2Set S(V,T_total,w);
+
             pm_x(S);
-            IVector res = pm_y(S);
+            
+            IVector res = pm_y(S,zero_vector,C,returnTime);
+            
             result = IVector{res[3],res[5]};
             
 
