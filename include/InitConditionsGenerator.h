@@ -24,6 +24,8 @@ struct InitConditionsGenerator
     int tau_div; int E_div;
     long double tau_delta; long double E_delta;
 
+    // LDVector v_eig;
+
     // LDVector V_eig;
     CR3BP<long double> vf;
 
@@ -48,20 +50,13 @@ struct InitConditionsGenerator
         LDVector rV(6), iV(6);
         LDMatrix rVec(6,6), iVec(6,6);
         capd::computeEigenvaluesAndEigenvectors(D,rV,iV,rVec,iVec);
-        LDVector V_eig = rVec.column(0);
+        LDVector v_eig = rVec.column(0);
 
-        tau_0 = (w0[0] - v0[0]) / V_eig[0];
+        tau_0 = (w0[0] - v0[0]) / v_eig[0];
     }
 
     LDVector get_fixed_point(long double E) {
-        // WRONG METHOD FOR FINDING FIXED POINT
-        LDVector v_E = v0;
-        long double dy1 = v_E[4];
-        v_E[4] = E0 + E;
-        long double dy = vf.dy(v_E)[0];
-        v_E[4] = dy;
-
-        return vf.findVerticalLyapunovOrbit(v_E);
+        return vf.findVerticalLyapunovOrbit(v0,E + E0);
     }
 
     LDVector get_initial_point(long double tau, long double E) {
@@ -163,8 +158,27 @@ struct InitConditionsGenerator
         file << std::scientific
              << std::setprecision(std::numeric_limits<long double>::max_digits10);
 
+        long double fixed_point_error;
+        long double total_fixed_point_error = 0.;
+        long double energy_error;
+        long double total_energy_error = 0.;
+        
+        capd::LDMaxNorm norm;
+
         LDVector v_E1 = get_fixed_point(-E_radius);
+        fixed_point_error = norm(v_E1 - vf.pm_y(vf.pm_y(v_E1)));
+        energy_error = abs(vf.E(v_E1)[0] + E_radius - E0);
+
+        if(total_fixed_point_error < fixed_point_error) total_fixed_point_error = fixed_point_error;
+        if(total_energy_error < energy_error) total_energy_error = energy_error;
+
+
         LDVector v_E2 = get_fixed_point(E_radius);
+        fixed_point_error = norm(v_E2 - vf.pm_y(vf.pm_y(v_E2)));
+        energy_error = abs(vf.E(v_E2)[0] - E_radius - E0);
+
+        if(total_fixed_point_error < fixed_point_error) total_fixed_point_error = fixed_point_error;
+        if(total_energy_error < energy_error) total_energy_error = energy_error;
 
 
         for(int i = 0; i < tau_div; i++) {
@@ -184,6 +198,12 @@ struct InitConditionsGenerator
 
         for(int i = 0; i < E_div; i++) {
             LDVector v_E = get_fixed_point(E_i - E0);
+            fixed_point_error = norm(v_E - vf.pm_y(vf.pm_y(v_E)));
+            energy_error = abs(vf.E(v_E)[0] - E_i);
+
+            if(total_fixed_point_error < fixed_point_error) total_fixed_point_error = fixed_point_error;
+            if(total_energy_error < energy_error) total_energy_error = energy_error;
+
             file << -tau_radius + tau_0 << " " << E_i << " " << vectorToString(v_E) << std::endl;
             E_i += E_delta;
         }
@@ -196,6 +216,10 @@ struct InitConditionsGenerator
             file <<  tau_radius + tau_0 << " " << E_i << " " << vectorToString(v_E) << std::endl;
             E_i += E_delta;
         }
+
+        std::cout << "data saved to init_data.txt with error: " << std::endl;
+        std::cout << "fixed_point_error: " << total_fixed_point_error << std::endl;
+        std::cout << "energy_error: " << total_energy_error << std::endl;
 
         file.close();
     }
@@ -231,64 +255,104 @@ struct InitConditionsGenerator
         file.close();
     }
 
-    void test1() {
-        long double tau_i = -tau_radius;
-        long double E_i = -E_radius;
+    void test() {
 
-        std::ofstream file("output.txt");
-        file << std::scientific
-             << std::setprecision(std::numeric_limits<long double>::max_digits10);
-        
-        for(int i = 0; i < tau_div; i++) {
-            
-            LDVector u = get_initial_point(tau_i, -E_radius);
-            LDVector res = vf.pm_y(vf.pm_x(u));
-            file << res[3] << " " << res[5] << std::endl;
-            u = get_initial_point(tau_i, E_radius);
-            res = vf.pm_y(vf.pm_x(u));
-            file << res[3] << " " << res[5] << std::endl;
+        std::ifstream file("init_data.txt");
+        std::ofstream outfile("image_nonrig.txt");
+        std::string line;
 
-            tau_i += tau_delta;
+        auto B = get_isomorphism();
+        auto C = capd::matrixAlgorithms::gaussInverseMatrix(B);
+
+        for(int i = 0; i < 4; i++) {
+            while(getline(file,line)) {
+                if(line == "") break;
+                long double* out = new long double[8];
+                std::istringstream ss(line);
+                for(int i = 0; i < 8; i++) {
+                    if(!(ss >> out[i])) {
+                        throw std::runtime_error("Problem with parsing data");
+                    }
+                }
+                long double tau = out[0];
+                long double E = out[1];
+                LDVector v{out[2],out[3],out[4],out[5],out[6],out[7]};
+                LDVector rV(6),iV(6);
+                LDMatrix rVec(6,6), iVec(6,6);
+                LDMatrix D = derivative(E - E0);
+                capd::computeEigenvaluesAndEigenvectors(D,rV,iV,rVec,iVec);
+                LDVector v_eig = rVec.column(0);
+                
+                LDVector v1 = v + (tau) * v_eig;
+                LDVector u = vf.pm_y(vf.pm_x(v1));
+                u = C * u;
+                outfile << u[3] << " " << u[5] << std::endl;
+                delete out;
+            }
         }
 
-        for(int i = 0; i < E_div; i++) {
-            LDVector u = get_initial_point(-tau_radius, E_i);
-            LDVector res = vf.pm_y(vf.pm_x(u));
-            file << res[3] << " " << res[5] << std::endl;
-            u = get_initial_point(tau_radius, E_i);
-            res = vf.pm_y(vf.pm_x(u));
-            file << res[3] << " " << res[5] << std::endl;
-
-            E_i += E_delta;
-        }
         file.close();
+        outfile.close();
     }
+
+    // void test1() {
+    //     long double tau_i = -tau_radius;
+    //     long double E_i = -E_radius;
+
+    //     std::ofstream file("output.txt");
+    //     file << std::scientific
+    //          << std::setprecision(std::numeric_limits<long double>::max_digits10);
+        
+    //     for(int i = 0; i < tau_div; i++) {
+            
+    //         LDVector u = get_initial_point(tau_i, -E_radius);
+    //         LDVector res = vf.pm_y(vf.pm_x(u));
+    //         file << res[3] << " " << res[5] << std::endl;
+    //         u = get_initial_point(tau_i, E_radius);
+    //         res = vf.pm_y(vf.pm_x(u));
+    //         file << res[3] << " " << res[5] << std::endl;
+
+    //         tau_i += tau_delta;
+    //     }
+
+    //     for(int i = 0; i < E_div; i++) {
+    //         LDVector u = get_initial_point(-tau_radius, E_i);
+    //         LDVector res = vf.pm_y(vf.pm_x(u));
+    //         file << res[3] << " " << res[5] << std::endl;
+    //         u = get_initial_point(tau_radius, E_i);
+    //         res = vf.pm_y(vf.pm_x(u));
+    //         file << res[3] << " " << res[5] << std::endl;
+
+    //         E_i += E_delta;
+    //     }
+    //     file.close();
+    // }
     
 
-    void test() {
-        // save_rectangle_to_file();
+    // void test() {
+    //     // save_rectangle_to_file();
 
-        LDMatrix C = get_isomorphism();
+    //     LDMatrix C = get_isomorphism();
 
-        std::ifstream file("init_points.txt");
+    //     std::ifstream file("init_points.txt");
         
-        if(!file) throw std::runtime_error("File does not exist");
+    //     if(!file) throw std::runtime_error("File does not exist");
 
-        std::ofstream file1("output.txt");
-        file1 << std::scientific
-             << std::setprecision(std::numeric_limits<long double>::max_digits10);
+    //     std::ofstream file1("output.txt");
+    //     file1 << std::scientific
+    //          << std::setprecision(std::numeric_limits<long double>::max_digits10);
 
-        LDVector v(6);
-        long double empty;
-        while(file >> empty >> empty >> v[0] >> v[1] >> v[2] >> v[3] >> v[4] >> v[5]) {
-            LDVector u_bufor = vf.pm_x(v);
-            LDVector u = vf.pm_y(u_bufor);
-            u = C * u;
-            file1 << u[3] << " " << u[5] << std::endl;
-        }
-        file.close();
-        file1.close();
-    }
+    //     LDVector v(6);
+    //     long double empty;
+    //     while(file >> empty >> empty >> v[0] >> v[1] >> v[2] >> v[3] >> v[4] >> v[5]) {
+    //         LDVector u_bufor = vf.pm_x(v);
+    //         LDVector u = vf.pm_y(u_bufor);
+    //         u = C * u;
+    //         file1 << u[3] << " " << u[5] << std::endl;
+    //     }
+    //     file.close();
+    //     file1.close();
+    // }
 };
 
 // void test() {

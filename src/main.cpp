@@ -2,6 +2,7 @@
 #include<tuple>
 #include<vector>
 #include<fstream>
+#include<chrono>
 #include "capd/capdlib.h"
 #include "cr3bp.h"
 #include "linalg_helper.h"
@@ -43,7 +44,7 @@ struct Record{
         tau = out[0];
         E = out[1];
         V = LDVector{out[2],out[3],out[4],out[5],out[6],out[7]};
-        delete out;
+        delete[] out;
     }
 };
 
@@ -93,7 +94,7 @@ vector<DataInstance> set_data(string file_name, InitConditionsGenerator& gen) {
 }
 
 int main() {
-    cout.precision(20);
+    // cout.precision(20);
 
     std::setprecision(std::numeric_limits<long double>::max_digits10);
     
@@ -103,28 +104,40 @@ int main() {
 
     CR3BP<long double> vf;
 
-    InitConditionsGenerator generator(1e-10,1e-10,300,3000);
+    InitConditionsGenerator generator(1e-10,1e-8,3000,100000);
+
 
     // generator.save_init_data_to_file();
     // return 0;
+
+    // generator.test();
+    // return 0;
+
     auto data = set_data("init_data.txt", generator);
 
-
     vector<ComputeImageTask*> tasks;
-    LDMatrix B = generator.get_isomorphism();
+    IMatrix B = generator.get_isomorphism();
+    IMatrix C = matrixAlgorithms::krawczykInverse(B);
 
-    fstream file("output.txt");
+
+    auto start = chrono::high_resolution_clock::now();
+
+    ofstream file("output.txt");
     file << std::scientific
              << std::setprecision(std::numeric_limits<long double>::max_digits10);
+    
 
-    for(int i = 1000; i < 1001; i++) {
+    for(int i = 10000; i < 10001; i++) {
+        // if(i % 100 != 0) continue;
+        std::cout << i << std::endl;
         Interval tau = data[i].tau;
         Interval E = data[i].E;
         IVector V = data[i].V;
 
-        tasks.push_back(new ComputeImageTask(tau,E,V,B,generator));
+        tasks.push_back(new ComputeImageTask(tau,E,V,C,generator));
         // break;
     }
+    cout << "Starting parallel computation" << endl;
     for(auto* task: tasks) pool.process(task);
     for(auto* task: tasks) task->join();
 
@@ -141,9 +154,13 @@ int main() {
         delete task;
     }
 
+    auto stop = chrono::high_resolution_clock::now();
+    auto time = chrono::duration_cast<chrono::seconds>(stop - start);
+    cout << "Elapsed time: " << time.count() << "s" << endl;
+
     cout << is_everything_ok << endl;
 
-    // file.close();
+    file.close();
 
     return 0;
 }
