@@ -100,7 +100,7 @@ struct InitConditionsGenerator
     }
 
     LDMatrix get_change_of_basis(long double E) {
-        E -= E0;
+        // E -= E0;
         
         LDVector v_E = get_fixed_point(E);
         // long double dy = v_E[4];
@@ -128,6 +128,8 @@ struct InitConditionsGenerator
         // LDMatrix T_total_inv = matrix_add_cord(capd::matrixAlgorithms::gaussInverseMatrix(matrix_erase_cord(L,1)),1) * capd::matrixAlgorithms::gaussInverseMatrix(T);
         
         // D = derivative(E);
+        // std::cout << D << std::endl;
+        // std::cout << T_total_inv * D * T_total << std::endl;
 
         return L;
     }
@@ -179,7 +181,6 @@ struct InitConditionsGenerator
 
         if(total_fixed_point_error < fixed_point_error) total_fixed_point_error = fixed_point_error;
         if(total_energy_error < energy_error) total_energy_error = energy_error;
-
 
         for(int i = 0; i < tau_div; i++) {
             file << tau_i << " " << -E_radius + E0 << " " << vectorToString(v_E1) << std::endl;

@@ -16,7 +16,8 @@ struct ComputeImageTask : public capd::threading::Task {
 
     enum Status {NEW, COMPLETED, FAILED};
 
-    long double muSJ = 0.00095388114032796904;
+    double muSJ = 0.00095388114032796904;
+    double e0 = 3.0268216642156945825;
     CR3BP<long double> vf;
     Interval tau, E;
     Interval X, Z, DY;
@@ -32,11 +33,10 @@ struct ComputeImageTask : public capd::threading::Task {
     // InitConditionsGenerator& gen;
     Status status = NEW;
 
-    ComputeImageTask(Interval tau, Interval E, IVector V, IMatrix C, InitConditionsGenerator& gen) : 
-            tau(tau), E(E), V(V),C(C) {
+    ComputeImageTask(Interval tau, Interval E, IVector V, IMatrix C, IMatrix L, InitConditionsGenerator& gen) : 
+            tau(tau), E(E), V(V),C(C),L(L) {
         
         // *gen_ptr = &gen;
-
         result = IVector(2);
         X = V[0]; Z = V[2]; DY = V[4];
   
@@ -52,10 +52,9 @@ struct ComputeImageTask : public capd::threading::Task {
         E.split(E0,E_remainder);
         X.split(X0,X_remainder); Z.split(Z0,Z_remainder); DY.split(DY0,DY_remainder);
 
-        IMatrix L1 = gen.get_change_of_basis(E.leftBound());
-        IMatrix L2 = gen.get_change_of_basis(E.rightBound());
-        L = intervalHull(L1,L2);
-        // C = capd::matrixAlgorithms::krawczykInverse(B);
+        // IMatrix L1 = gen.get_change_of_basis(E.leftBound() - gen.E0);
+        // IMatrix L2 = gen.get_change_of_basis(E.rightBound() - gen.E0);
+        // this->L = intervalHull(L1,L2);
         
     }
 
@@ -162,7 +161,7 @@ struct ComputeImageTask : public capd::threading::Task {
 
     IVector cone_coeff(int tau_div, IMatrix T_total, IMatrix T_total_inv, capd::IPoincareMap& pm_y) {
         double tau_eps = 1e-7;
-        double gamma_eps = 1e-9;
+        double gamma_eps = 1e-10;
 
         double tau_delta = tau_eps / tau_div;
 
@@ -178,6 +177,9 @@ struct ComputeImageTask : public capd::threading::Task {
         Interval gamma = gamma_eps * Interval(-1,1);
         Interval tau_i(0, tau_delta);
 
+        IVector w{Interval(0,tau_eps),0,0,gamma,gamma,gamma};
+        std::cout << L * w << std::endl;
+        
         for(int i = 0; i < tau_div; i++) {
             
             IVector u{tau_i,0, 0, gamma, gamma, gamma};
@@ -186,7 +188,7 @@ struct ComputeImageTask : public capd::threading::Task {
             IMatrix D(6,6);
             IVector y = pm_y(S,D,2);
             D = pm_y.computeDP(y,D);
-            
+
             D = T_total_inv * D;
             IMatrix D_reduced = matrix_erase_cord(D,1);
 
@@ -200,6 +202,8 @@ struct ComputeImageTask : public capd::threading::Task {
         
 
         IMatrix H = matrix_erase_cord(D_total,1);
+        
+
         IMatrix H_T = H;
         H_T.transpose();
         IMatrix V_h = H_T * Q_h * H - m_h * Q_h;
@@ -217,16 +221,16 @@ struct ComputeImageTask : public capd::threading::Task {
             }
         }
 
-        Interval A = capd::abs(D_total[0][0]).left();
-        Interval B = sum_norm(IVector{H[0][1],H[0][2],H[0][3]}).right();
-        Interval C = max_norm(IVector{H[1][0],H[2][0],H[3][0]}).right();
+        // Interval A = capd::abs(D_total[0][0]).left();
+        // Interval B = sum_norm(IVector{H[0][1],H[0][2],H[0][3]}).right();
+        // Interval C = max_norm(IVector{H[1][0],H[2][0],H[3][0]}).right();
 
-        Interval K = max_norm(matrix_erase_cord(H,0)).right();
+        // Interval K = max_norm(matrix_erase_cord(H,0)).right();
 
-        Interval delta = power(-A + K,2) - 4 * B * C;
+        // Interval delta = power(-A + K,2) - 4 * B * C;
         
-        Interval alpha1 = (A - K + sqrt(delta)) / (2 * B);
-        Interval alpha2 = (A - K - sqrt(delta)) / (2 * B);
+        // Interval alpha1 = (A - K + sqrt(delta)) / (2 * B);
+        // Interval alpha2 = (A - K - sqrt(delta)) / (2 * B);
 
         return IVector{alpha_h,alpha_v};
     }
@@ -236,6 +240,7 @@ struct ComputeImageTask : public capd::threading::Task {
         // prove_Z_bound();
 
         try {
+
             capd::IPoincareMap& pm_x = CR3BPPool::pool_X->getSolver(threadID).pm;
             capd::IPoincareMap& pm_y = CR3BPPool::pool_Y->getSolver(threadID).pm;
             capd::IPoincareMap& pm_z = CR3BPPool::pool_Z->getSolver(threadID).pm;
@@ -259,9 +264,10 @@ struct ComputeImageTask : public capd::threading::Task {
             
             if(!prove_fixed_point(pm_z)) throw std::runtime_error("Proper enclosure of fixed points is not proven");
             
-
+            
             IMatrix L_temp = capd::matrixAlgorithms::krawczykInverse(matrix_erase_cord(L,1));
             L_inv = matrix_add_cord(L_temp,1);
+
             
 
             IMatrix T = get_energy_change_of_basis();
@@ -273,12 +279,11 @@ struct ComputeImageTask : public capd::threading::Task {
             
             Interval alpha = cone_coeff(5,T_total, T_total_inv, pm_y)[0];
             // pm_y.getSolver().setOrder(15);
-            alpha = 0.02;
+            alpha = 0.001;
             
             Interval gamma = alpha * tau * Interval(-1,1);
             
             IVector w{tau,0,0,gamma,gamma,gamma};
-            // std::cout << w << std::endl;
             
             
             // w += T_total_inv * V_remainder;
@@ -298,15 +303,17 @@ struct ComputeImageTask : public capd::threading::Task {
             // IMatrix T_remainder(6,6);
             // split(T0,T_remainder);
 
-            std::cout << T_total * w_remainder << std::endl;
-            std::cout << V_remainder << std::endl;
+            
 
             capd::C0HOTripletonSet S(V0 + T_total * w0,T_total,w_remainder,V_remainder);
+            // capd::C0HOTripletonSet S(V0 + T_total * w0,T_total,w_remainder);
+            
             S.setC0Factor(100);
             pm_x(S);
             
             IVector res = pm_y(S,zero_vector,C,returnTime);
             // IVector res = pm_y(S);
+
             
             result = IVector{res[3],res[5]};
             IVector z{0,0};
@@ -316,7 +323,8 @@ struct ComputeImageTask : public capd::threading::Task {
             
 
             status = COMPLETED;
-        } catch(...) {
+        } catch(const std::exception& exc) {
+            std::cout << exc.what() << std::endl;
             status = FAILED;
         }
     }

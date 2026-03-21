@@ -103,6 +103,8 @@ struct CR3BP {
     capd::poincare::BasicPoincareMap<capd::dynsys::BasicOdeSolver<TMap>> pm_z;
     capd::poincare::BasicPoincareMap<capd::dynsys::BasicOdeSolver<TMap>> pm_y;
 
+    capd::vectalg::MaxNorm<TVector,TMatrix> norm;
+
     // #########################################################################
     /**
      The vertical Lyapunov orbits are double symmetric with respect to reflection z->-z and R-symmetry.
@@ -116,14 +118,15 @@ struct CR3BP {
     @return - initial condition for vertical Lyapunov orbit (x,0,z,0,dy,0) for fixed z.
     */
     TVector findVerticalLyapunovOrbit(TVector v, T e){
-        for(int i=0;i<15;++i){
+        TVector u(3);
+        do{
             TMatrix D(6,6);
             TVector y = pm_z(v,D);
             D = pm_z.computeDP(y,D);
             TVector E_grad = E.derivative(v)[0];
 
             // we want y=0 and dx=0
-            TVector u({y[1],y[3], E(v)[0] - e}); 
+            u = TVector({y[1],y[3], E(v)[0] - e}); 
             
             // input variables are x,z (0 and 2)
             TMatrix M({{D[1][0],D[1][2],D[1][4]},
@@ -134,7 +137,27 @@ struct CR3BP {
             v[0] -= u[0];
             v[2] -= u[1];
             v[4] -= u[2];
-        }
+        } while(norm(u) > 1e-15);
+        
+        // for(int i=0;i<15;++i){
+        //     TMatrix D(6,6);
+        //     TVector y = pm_z(v,D);
+        //     D = pm_z.computeDP(y,D);
+        //     TVector E_grad = E.derivative(v)[0];
+
+        //     // we want y=0 and dx=0
+        //     TVector u({y[1],y[3], E(v)[0] - e}); 
+            
+        //     // input variables are x,z (0 and 2)
+        //     TMatrix M({{D[1][0],D[1][2],D[1][4]},
+        //                {D[3][0],D[3][2],D[3][4]},
+        //                {E_grad[0],E_grad[2],E_grad[4]}});
+            
+        //     u = capd::matrixAlgorithms::gauss(M,u);
+        //     v[0] -= u[0];
+        //     v[2] -= u[1];
+        //     v[4] -= u[2];
+        // }
         return v;
     }
 

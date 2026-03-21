@@ -94,7 +94,7 @@ vector<DataInstance> set_data(string file_name, InitConditionsGenerator& gen) {
 }
 
 int main() {
-    // cout.precision(20);
+    cout.precision(20);
 
     std::setprecision(std::numeric_limits<long double>::max_digits10);
     
@@ -104,8 +104,8 @@ int main() {
 
     CR3BP<long double> vf;
 
-    InitConditionsGenerator generator(1e-10,1e-8,3000,100000);
-
+    // InitConditionsGenerator generator(1e-11,1e-10,10000,10000);
+    InitConditionsGenerator generator(1e-10,1e-8,2000,100000);
 
     // generator.save_init_data_to_file();
     // return 0;
@@ -126,15 +126,18 @@ int main() {
     file << std::scientific
              << std::setprecision(std::numeric_limits<long double>::max_digits10);
     
+    LDMatrix L = generator.get_change_of_basis(0.);
+    // cout << L << endl;
 
-    for(int i = 10000; i < 10001; i++) {
+
+    for(int i = 4000; i < 4001; i++) {
         // if(i % 100 != 0) continue;
-        std::cout << i << std::endl;
         Interval tau = data[i].tau;
         Interval E = data[i].E;
+        
         IVector V = data[i].V;
 
-        tasks.push_back(new ComputeImageTask(tau,E,V,C,generator));
+        tasks.push_back(new ComputeImageTask(tau,E,V,C,L,generator));
         // break;
     }
     cout << "Starting parallel computation" << endl;
