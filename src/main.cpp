@@ -94,7 +94,7 @@ vector<DataInstance> set_data(string file_name, InitConditionsGenerator& gen) {
 }
 
 int main() {
-    cout.precision(20);
+    cout.precision(15);
 
     std::setprecision(std::numeric_limits<long double>::max_digits10);
     
@@ -105,11 +105,9 @@ int main() {
     CR3BP<long double> vf;
 
     // InitConditionsGenerator generator(1e-11,1e-10,10000,10000);
-    InitConditionsGenerator generator(1e-10,1e-8,2000,100000);
-
+    InitConditionsGenerator generator(1e-10,1e-8,300,8000);
     // generator.save_init_data_to_file();
-    // return 0;
-
+    
     // generator.test();
     // return 0;
 
@@ -127,11 +125,11 @@ int main() {
              << std::setprecision(std::numeric_limits<long double>::max_digits10);
     
     LDMatrix L = generator.get_change_of_basis(0.);
-    // cout << L << endl;
+    cout << L << endl;
+    return 0;
 
-
-    for(int i = 4000; i < 4001; i++) {
-        // if(i % 100 != 0) continue;
+    for(int i = 0; i < data.size(); i++) {
+        if(i % 10 != 0) continue;
         Interval tau = data[i].tau;
         Interval E = data[i].E;
         
